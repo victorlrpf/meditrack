@@ -1,9 +1,18 @@
 import * as Notifications from 'expo-notifications';
+import { isRunningInExpoGo } from 'expo';
 import { Platform } from 'react-native';
 import { dateKey, parseKey } from '../utils/date';
 import { listMedications } from './medications';
 
 const CHANNEL_ID = 'lembretes';
+
+function shouldUseExpoGoFallback(): boolean {
+  return Platform.OS === 'android' && isRunningInExpoGo();
+}
+
+function getChannelId(): string | undefined {
+  return shouldUseExpoGoFallback() ? undefined : CHANNEL_ID;
+}
 
 export function initNotifications(): void {
   Notifications.setNotificationHandler({
@@ -17,7 +26,7 @@ export function initNotifications(): void {
 }
 
 async function ensureChannel(): Promise<void> {
-  if (Platform.OS !== 'android') return;
+  if (Platform.OS !== 'android' || shouldUseExpoGoFallback()) return;
   await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
     name: 'Lembretes de medicamentos',
     importance: Notifications.AndroidImportance.HIGH,
@@ -53,6 +62,7 @@ export async function refreshReminders(): Promise<void> {
     if (!perm.granted) return;
     await ensureChannel();
 
+    const channelId = getChannelId();
     const today = dateKey();
     for (const m of meds) {
       if (m.status !== 'active') continue;
@@ -71,7 +81,7 @@ export async function refreshReminders(): Promise<void> {
               type: Notifications.SchedulableTriggerInputTypes.DAILY,
               hour,
               minute,
-              channelId: CHANNEL_ID,
+              ...(channelId ? { channelId } : {}),
             },
           });
         } else {
@@ -83,7 +93,7 @@ export async function refreshReminders(): Promise<void> {
                 weekday: wd + 1, // expo: 1 = domingo
                 hour,
                 minute,
-                channelId: CHANNEL_ID,
+                ...(channelId ? { channelId } : {}),
               },
             });
           }
@@ -103,7 +113,7 @@ export async function refreshReminders(): Promise<void> {
           trigger: {
             type: Notifications.SchedulableTriggerInputTypes.DATE,
             date: when,
-            channelId: CHANNEL_ID,
+            ...(channelId ? { channelId } : {}),
           },
         });
       }
