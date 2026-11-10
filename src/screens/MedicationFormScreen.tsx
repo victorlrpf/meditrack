@@ -11,6 +11,13 @@ import { fmtQty, parseNumber, PRESENTATIONS, STOCK_UNITS } from '../utils/format
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MedicationForm'>;
 
+function formatDateInput(text: string): string {
+  const digits = text.replace(/\D/g, '').slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+}
+
 export default function MedicationFormScreen({ navigation, route }: Props) {
   const editingId = route.params?.medicationId;
   const editing = editingId !== undefined;
@@ -62,19 +69,32 @@ export default function MedicationFormScreen({ navigation, route }: Props) {
   const addTime = () => {
     const t = normalizeTime(newTime);
     if (!t) {
-      setErrors((e) => ({ ...e, times: 'Use o formato HH:mm, por exemplo 08:00.' }));
+      setErrors((e) => ({ ...e, times: 'Digite 4 números válidos, por exemplo 0800 para 08:00.' }));
+      return;
+    }
+    if (times.includes(t)) {
+      setErrors((e) => ({ ...e, times: 'Esse horário já foi adicionado.' }));
       return;
     }
     setErrors((e) => {
       const { times: _drop, ...rest } = e;
       return rest;
     });
-    setTimes((prev) => [...new Set([...prev, t])].sort());
+    setTimes((prev) => [...prev, t].sort());
     setNewTime('');
   };
 
   const toggleDay = (d: number) =>
     setWeekdays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort()));
+
+  const selectStockUnit = (unit: string) => {
+    setStockUnit(unit);
+    setErrors((current) => {
+      if (!current.stockUnit) return current;
+      const { stockUnit: _stockUnit, ...rest } = current;
+      return rest;
+    });
+  };
 
   const validate = (): MedicationInput | null => {
     const e: Record<string, string> = {};
@@ -83,7 +103,7 @@ export default function MedicationFormScreen({ navigation, route }: Props) {
     if (!presentation.trim()) e.presentation = 'Informe a apresentação.';
     const q = parseNumber(qty);
     if (q === null || q <= 0) e.qty = 'Informe uma quantidade maior que zero.';
-    if (!stockUnit.trim()) e.stockUnit = 'Informe a unidade de estoque.';
+    if (!STOCK_UNITS.includes(stockUnit)) e.stockUnit = 'Escolha uma unidade da lista.';
     const start = parseBR(startDate);
     if (!start) e.startDate = 'Use o formato dd/mm/aaaa.';
     let end: string | null = null;
@@ -166,26 +186,30 @@ export default function MedicationFormScreen({ navigation, route }: Props) {
         </Row>
         {errors.presentation ? <Txt color="#B91C1C" size={12}>{errors.presentation}</Txt> : null}
 
-        <View style={{ height: 12 }} />
-        <Row style={{ alignItems: 'flex-start' }}>
-          <View style={{ flex: 1, marginRight: 10 }}>
-            <Field
-              label="Quantidade por administração *"
-              value={qty}
-              onChangeText={setQty}
-              keyboardType="decimal-pad"
-              error={errors.qty}
-            />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Field label="Unidade de estoque *" value={stockUnit} onChangeText={setStockUnit} error={errors.stockUnit} />
-          </View>
-        </Row>
-        <Row style={{ flexWrap: 'wrap', marginBottom: 12 }}>
+        <Field
+          label={`Quantidade por administração * (${STOCK_UNITS.includes(stockUnit) ? stockUnit : 'selecione a unidade'})`}
+          value={qty}
+          onChangeText={setQty}
+          keyboardType="decimal-pad"
+          error={errors.qty}
+          hint="Informe quanto é usado em cada horário cadastrado."
+        />
+        <Txt bold style={{ marginBottom: 6 }}>
+          Unidade de estoque *
+        </Txt>
+        <Txt muted size={12} style={{ marginBottom: 8 }}>
+          Escolha a unidade usada para contar este medicamento.
+        </Txt>
+        <Row style={{ flexWrap: 'wrap', marginBottom: 4 }}>
           {STOCK_UNITS.map((u) => (
-            <Chip key={u} label={u} selected={stockUnit === u} onPress={() => setStockUnit(u)} />
+            <Chip key={u} label={u} selected={stockUnit === u} onPress={() => selectStockUnit(u)} />
           ))}
         </Row>
+        {errors.stockUnit ? (
+          <Txt color="#B91C1C" size={12} style={{ marginBottom: 12 }}>
+            {errors.stockUnit}
+          </Txt>
+        ) : null}
 
         {!editing ? (
           <Field
@@ -208,8 +232,9 @@ export default function MedicationFormScreen({ navigation, route }: Props) {
             <Field
               label="Início *"
               value={startDate}
-              onChangeText={setStartDate}
-              keyboardType="numbers-and-punctuation"
+              onChangeText={(text) => setStartDate(formatDateInput(text))}
+              keyboardType="number-pad"
+              maxLength={10}
               placeholder="dd/mm/aaaa"
               error={errors.startDate}
             />
@@ -218,8 +243,9 @@ export default function MedicationFormScreen({ navigation, route }: Props) {
             <Field
               label={kind === 'temporary' ? 'Término *' : 'Término'}
               value={endDate}
-              onChangeText={setEndDate}
-              keyboardType="numbers-and-punctuation"
+              onChangeText={(text) => setEndDate(formatDateInput(text))}
+              keyboardType="number-pad"
+              maxLength={10}
               placeholder="dd/mm/aaaa"
               error={errors.endDate}
             />
@@ -227,6 +253,9 @@ export default function MedicationFormScreen({ navigation, route }: Props) {
         </Row>
 
         <SectionTitle>Horários</SectionTitle>
+        <Txt muted size={13} style={{ marginBottom: 8 }}>
+          Digite somente números no formato 24 horas. Exemplo: 0800 corresponde a 08:00.
+        </Txt>
         <Card>
           {times.length === 0 ? (
             <Txt muted>Nenhum horário adicionado.</Txt>
@@ -240,13 +269,23 @@ export default function MedicationFormScreen({ navigation, route }: Props) {
           <Row style={{ alignItems: 'flex-end', marginTop: 12 }}>
             <View style={{ flex: 1, marginRight: 10 }}>
               <Field
-                label="Novo horário"
+                label="Horário (HH:mm)"
                 value={newTime}
-                onChangeText={setNewTime}
+                onChangeText={(text) => {
+                  const digits = text.replace(/\D/g, '').slice(0, 4);
+                  setNewTime(digits.length > 2 ? `${digits.slice(0, 2)}:${digits.slice(2)}` : digits);
+                  setErrors((current) => {
+                    if (!current.times) return current;
+                    const { times: _times, ...rest } = current;
+                    return rest;
+                  });
+                }}
                 placeholder="08:00"
-                keyboardType="numbers-and-punctuation"
+                keyboardType="number-pad"
+                maxLength={5}
                 onSubmitEditing={addTime}
                 error={errors.times}
+                hint="Digite quatro números; 1030 será exibido como 10:30."
                 style={{ marginBottom: 0 }}
               />
             </View>
@@ -256,6 +295,9 @@ export default function MedicationFormScreen({ navigation, route }: Props) {
 
         <Txt bold style={{ marginBottom: 6 }}>
           Dias da semana
+        </Txt>
+        <Txt muted size={13} style={{ marginBottom: 8 }}>
+          Sem selecionar dias, o horário se repete todos os dias.
         </Txt>
         <Row style={{ flexWrap: 'wrap' }}>
           <Chip label="Todos os dias" selected={weekdays.length === 0} onPress={() => setWeekdays([])} />
