@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { MedKind, MedicationInput } from '../db/types';
 import type { RootStackParamList } from '../navigation/types';
+import AppModal from '../components/AppModal';
 import { Banner, Button, Card, Chip, Field, Row, Screen, SectionTitle, Txt } from '../components/ui';
 import { createMedication, getMedicationView, updateMedication } from '../services/medications';
 import { getPermissionState, refreshReminders, requestPermission } from '../services/notifications';
@@ -39,6 +40,7 @@ export default function MedicationFormScreen({ navigation, route }: Props) {
   const [weekdays, setWeekdays] = useState<number[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     navigation.setOptions({ title: editing ? 'Editar medicamento' : 'Novo medicamento' });
@@ -147,6 +149,7 @@ export default function MedicationFormScreen({ navigation, route }: Props) {
     const input = validate();
     if (!input) return;
     setSaving(true);
+    setSaveError(null);
     try {
       if (editingId !== undefined) {
         await updateMedication(editingId, input);
@@ -157,7 +160,8 @@ export default function MedicationFormScreen({ navigation, route }: Props) {
       await refreshReminders();
       navigation.goBack();
     } catch (err) {
-      Alert.alert('Não foi possível salvar', err instanceof Error ? err.message : 'Tente novamente.');
+      console.warn('Falha ao salvar medicamento', err);
+      setSaveError(err instanceof Error ? err.message : 'Tente novamente.');
     } finally {
       setSaving(false);
     }
@@ -318,6 +322,15 @@ export default function MedicationFormScreen({ navigation, route }: Props) {
         <Field label="Observações" value={notes} onChangeText={setNotes} multiline style={{ minHeight: 80, textAlignVertical: 'top' }} />
 
         <Button title={editing ? 'Salvar alterações' : 'Salvar medicamento'} onPress={() => void save()} disabled={saving} />
+        <AppModal
+          visible={saveError !== null}
+          title="Não foi possível salvar"
+          message={saveError ?? ''}
+          icon="alert-circle-outline"
+          tone="warning"
+          onDismiss={() => setSaveError(null)}
+          actions={[{ label: 'Entendi', onPress: () => setSaveError(null) }]}
+        />
       </Screen>
     </KeyboardAvoidingView>
   );

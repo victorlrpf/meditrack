@@ -1,9 +1,10 @@
 import React, { useCallback, useState } from 'react';
-import { Alert, View } from 'react-native';
+import { View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { InventoryTx, MedStatus, MedicationWithStock } from '../db/types';
 import type { RootStackParamList } from '../navigation/types';
+import AppModal, { type AppModalAction, type AppModalIconName } from '../components/AppModal';
 import { Badge, Banner, Button, Card, Field, Row, Screen, SectionTitle, Txt } from '../components/ui';
 import { deleteMedication, getMedicationView, setMedicationStatus } from '../services/medications';
 import { addPurchase, adjustToCount, listTransactions, TX_LABEL } from '../services/inventory';
@@ -14,6 +15,13 @@ import { describeSchedule } from '../utils/schedule';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MedicationDetail'>;
 type Panel = 'purchase' | 'adjust' | null;
+type Dialog = {
+  title: string;
+  message: string;
+  icon: AppModalIconName;
+  tone: 'info' | 'warning' | 'danger' | 'success';
+  actions: AppModalAction[];
+};
 
 export default function MedicationDetailScreen({ navigation, route }: Props) {
   const id = route.params.medicationId;
@@ -23,6 +31,7 @@ export default function MedicationDetailScreen({ navigation, route }: Props) {
   const [qtyText, setQtyText] = useState('');
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<Dialog | null>(null);
 
   const load = useCallback(async () => {
     const [m, t] = await Promise.all([getMedicationView(id), listTransactions(id, 10)]);
@@ -64,40 +73,62 @@ export default function MedicationDetailScreen({ navigation, route }: Props) {
   };
 
   const changeStatus = (status: MedStatus, title: string, message: string) => {
-    Alert.alert(title, message, [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Confirmar',
-        onPress: () => {
-          void (async () => {
+    setDialog({
+      title,
+      message,
+      icon: 'progress-question',
+      tone: 'warning',
+      actions: [
+        { label: 'Confirmar', onPress: () => void (async () => {
+          setDialog(null);
+          try {
             await setMedicationStatus(id, status);
             await refreshReminders();
             await load();
-          })();
-        },
-      },
-    ]);
+          } catch (reason) {
+            console.warn('Falha ao alterar acompanhamento', reason);
+            setDialog({
+              title: 'Não foi possível atualizar',
+              message: reason instanceof Error ? reason.message : 'Tente novamente.',
+              icon: 'alert-circle-outline',
+              tone: 'warning',
+              actions: [{ label: 'Entendi', onPress: () => setDialog(null) }],
+            });
+          }
+        })() },
+        { label: 'Cancelar', variant: 'secondary', onPress: () => setDialog(null) },
+      ],
+    });
   };
 
   const remove = () => {
-    Alert.alert(
-      'Excluir medicamento',
-      'Isso apaga o medicamento e todo o histórico dele (administrações, estoque e alterações). Não dá para desfazer. Para só parar o acompanhamento, use "Encerrar".',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Excluir',
-          style: 'destructive',
-          onPress: () => {
-            void (async () => {
-              await deleteMedication(id);
-              await refreshReminders();
-              navigation.goBack();
-            })();
-          },
-        },
+    setDialog({
+      title: 'Excluir medicamento?',
+      message:
+        'O medicamento e todo o histórico (administrações, estoque e alterações) serão apagados. Não dá para desfazer. Para apenas parar o acompanhamento, escolha Encerrar.',
+      icon: 'delete-alert-outline',
+      tone: 'danger',
+      actions: [
+        { label: 'Excluir', variant: 'danger', onPress: () => void (async () => {
+          setDialog(null);
+          try {
+            await deleteMedication(id);
+            await refreshReminders();
+            navigation.goBack();
+          } catch (reason) {
+            console.warn('Falha ao excluir medicamento', reason);
+            setDialog({
+              title: 'Não foi possível excluir',
+              message: reason instanceof Error ? reason.message : 'Tente novamente.',
+              icon: 'alert-circle-outline',
+              tone: 'warning',
+              actions: [{ label: 'Entendi', onPress: () => setDialog(null) }],
+            });
+          }
+        })() },
+        { label: 'Cancelar', variant: 'secondary', onPress: () => setDialog(null) },
       ],
-    );
+    });
   };
 
   if (!med) {
@@ -280,6 +311,17 @@ export default function MedicationDetailScreen({ navigation, route }: Props) {
         />
       )}
       <Button title="Excluir medicamento e histórico" variant="danger" onPress={remove} />
+      {dialog ? (
+        <AppModal
+          visible
+          title={dialog.title}
+          message={dialog.message}
+          icon={dialog.icon}
+          tone={dialog.tone}
+          actions={dialog.actions}
+          onDismiss={() => setDialog(null)}
+        />
+      ) : null}
     </Screen>
   );
 }

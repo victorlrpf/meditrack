@@ -1,12 +1,11 @@
 import React, { useCallback, useState } from 'react';
-import { Linking, Modal, Platform, Pressable, View } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import { isRunningInExpoGo } from 'expo';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { useFocusEffect } from '@react-navigation/native';
+import AppModal from '../components/AppModal';
 import { Badge, Button, Card, Row, Screen, SectionTitle, Txt } from '../components/ui';
 import { wipeAllData } from '../db/database';
-import { useTheme } from '../theme/theme';
 import {
   getPermissionState,
   refreshReminders,
@@ -15,7 +14,6 @@ import {
 } from '../services/notifications';
 
 export default function SettingsScreen({ onWiped }: { onWiped?: () => void }) {
-  const t = useTheme();
   const [perm, setPerm] = useState<PermissionState>('undetermined');
   const isAndroidExpoGo = Platform.OS === 'android' && isRunningInExpoGo();
   const [confirmWipe, setConfirmWipe] = useState(false);
@@ -118,87 +116,23 @@ export default function SettingsScreen({ onWiped }: { onWiped?: () => void }) {
         </Txt>
       </Card>
 
-      <Modal
+      <AppModal
         visible={confirmWipe}
-        transparent
-        animationType="fade"
-        statusBarTranslucent
-        onRequestClose={() => {
-          if (!wiping) setConfirmWipe(false);
-        }}
-      >
-        <View
-          style={{
-            flex: 1,
-            justifyContent: 'center',
-            padding: 24,
-            backgroundColor: 'rgba(0, 0, 0, 0.48)',
-          }}
-        >
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Cancelar exclusão dos dados"
-            disabled={wiping}
-            onPress={() => setConfirmWipe(false)}
-            style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }}
-          />
-          <View
-            accessibilityViewIsModal
-            style={{
-              padding: 24,
-              borderRadius: 24,
-              backgroundColor: t.card,
-              borderWidth: 1,
-              borderColor: t.border,
-              alignItems: 'center',
-            }}
-          >
-            <View
-              style={{
-                width: 56,
-                height: 56,
-                borderRadius: 28,
-                backgroundColor: t.dangerBg,
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginBottom: 16,
-              }}
-            >
-              <MaterialCommunityIcons name="delete-alert-outline" size={28} color={t.danger} />
-            </View>
-            <Txt bold size={21} style={{ textAlign: 'center' }}>
-              Apagar todos os dados?
-            </Txt>
-            <Txt muted style={{ textAlign: 'center', lineHeight: 21, marginTop: 10, marginBottom: 18 }}>
-              Medicamentos, registros, estoque e configurações serão removidos deste aparelho. Esta
-              ação não pode ser desfeita.
-            </Txt>
-            {wipeError ? (
-              <Txt
-                color={t.danger}
-                size={13}
-                style={{ textAlign: 'center', marginBottom: 14 }}
-              >
-                {wipeError}
-              </Txt>
-            ) : null}
-            <Button
-              title={wiping ? 'Apagando...' : 'Apagar tudo'}
-              variant="danger"
-              onPress={() => void wipe()}
-              disabled={wiping}
-              style={{ alignSelf: 'stretch', marginBottom: 8 }}
-            />
-            <Button
-              title="Cancelar"
-              variant="secondary"
-              onPress={() => setConfirmWipe(false)}
-              disabled={wiping}
-              style={{ alignSelf: 'stretch' }}
-            />
-          </View>
-        </View>
-      </Modal>
+        title="Apagar todos os dados?"
+        message={
+          wipeError
+            ? `${wipeError} Medicamentos, registros, estoque e configurações serão removidos deste aparelho. Esta ação não pode ser desfeita.`
+            : 'Medicamentos, registros, estoque e configurações serão removidos deste aparelho. Esta ação não pode ser desfeita.'
+        }
+        icon="delete-alert-outline"
+        tone="danger"
+        busy={wiping}
+        onDismiss={() => setConfirmWipe(false)}
+        actions={[
+          { label: 'Apagar tudo', variant: 'danger', onPress: () => void wipe() },
+          { label: 'Cancelar', variant: 'secondary', onPress: () => setConfirmWipe(false) },
+        ]}
+      />
     </Screen>
   );
 }

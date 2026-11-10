@@ -1,9 +1,10 @@
 import React, { useCallback, useState } from 'react';
-import { Alert, Linking, View } from 'react-native';
+import { Linking, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { IntakeItem, IntakeStatus, MedicationWithStock } from '../db/types';
 import type { RootStackParamList } from '../navigation/types';
+import AppModal, { type AppModalAction } from '../components/AppModal';
 import { Badge, Banner, Button, Card, Empty, Row, Screen, SectionTitle, Txt } from '../components/ui';
 import { autoEndFinished, listMedications } from '../services/medications';
 import { ensureIntakes, listIntakeWindow, recordIntake, STATUS_LABEL } from '../services/intakes';
@@ -24,6 +25,7 @@ import {
 import { fmtQty, forecastLine } from '../utils/format';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
+type Dialog = { title: string; message: string; actions: AppModalAction[] };
 
 export default function TodayScreen() {
   const nav = useNavigation<Nav>();
@@ -31,6 +33,7 @@ export default function TodayScreen() {
   const [meds, setMeds] = useState<MedicationWithStock[]>([]);
   const [perm, setPerm] = useState<PermissionState>('granted');
   const [loaded, setLoaded] = useState(false);
+  const [dialog, setDialog] = useState<Dialog | null>(null);
 
   const load = useCallback(async () => {
     const ended = await autoEndFinished();
@@ -57,23 +60,42 @@ export default function TodayScreen() {
     await load();
   };
 
+  const runAct = async (item: IntakeItem, status: IntakeStatus) => {
+    try {
+      await act(item, status);
+    } catch (reason) {
+      console.warn('Falha ao registrar administração', reason);
+      setDialog({
+        title: 'Não foi possível salvar',
+        message: reason instanceof Error ? reason.message : 'Tente novamente.',
+        actions: [{ label: 'Entendi', onPress: () => setDialog(null) }],
+      });
+    }
+  };
+
   const correct = (item: IntakeItem) => {
     const options: { text: string; status: IntakeStatus }[] = [
       { text: 'Marcar como administrado', status: 'taken' },
       { text: 'Marcar como não administrado', status: 'missed' },
       { text: 'Voltar para pendente', status: 'pending' },
     ];
-    Alert.alert(
-      'Corrigir registro',
-      `${item.medicationName} · ${stampTime(item.scheduledAt)}\nSituação atual: ${STATUS_LABEL[item.status]}. A correção fica registrada no histórico.`,
-      [
+    setDialog({
+      title: 'Corrigir registro',
+      message: `${item.medicationName} · ${stampTime(item.scheduledAt)}. Situação atual: ${STATUS_LABEL[item.status]}. A correção fica registrada no histórico.`,
+      actions: [
         ...options
-          .filter((o) => o.status !== item.status)
+          .filter((option) => option.status !== item.status)
           .slice(0, 2)
-          .map((o) => ({ text: o.text, onPress: () => void act(item, o.status) })),
-        { text: 'Cancelar', style: 'cancel' as const },
+          .map((option) => ({
+            label: option.text,
+            onPress: () => {
+              setDialog(null);
+              void runAct(item, option.status);
+            },
+          })),
+        { label: 'Cancelar', variant: 'secondary' as const, onPress: () => setDialog(null) },
       ],
-    );
+    });
   };
 
   const fixPermission = async () => {
@@ -161,7 +183,7 @@ export default function TodayScreen() {
         <>
           <SectionTitle>Pendentes de confirmação</SectionTitle>
           {due.map((i) => (
-            <IntakeCard key={i.id} item={i} onTaken={() => act(i, 'taken')} onMissed={() => act(i, 'missed')} />
+            <IntakeCard key={i.id} item={i} onTaken={() => void runAct(i, 'taken')} onMissed={() => void runAct(i, 'missed')} />
           ))}
         </>
       ) : null}
@@ -170,7 +192,7 @@ export default function TodayScreen() {
         <>
           <SectionTitle>Próximas administrações</SectionTitle>
           {upcoming.map((i) => (
-            <IntakeCard key={i.id} item={i} onTaken={() => act(i, 'taken')} onMissed={() => act(i, 'missed')} />
+            <IntakeCard key={i.id} item={i} onTaken={() => void runAct(i, 'taken')} onMissed={() => void runAct(i, 'missed')} />
           ))}
         </>
       ) : null}
@@ -217,6 +239,17 @@ export default function TodayScreen() {
           dúvida sobre doses, siga a orientação do seu profissional de saúde.
         </Txt>
       </Card>
+      {dialog ? (
+        <AppModal
+          visible
+          title={dialog.title}
+          message={dialog.message}
+          icon={dialog.title === 'Corrigir registro' ? 'history' : 'alert-circle-outline'}
+          tone={dialog.title === 'Corrigir registro' ? 'info' : 'warning'}
+          actions={dialog.actions}
+          onDismiss={() => setDialog(null)}
+        />
+      ) : null}
     </Screen>
   );
 }
