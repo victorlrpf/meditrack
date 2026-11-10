@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "MediTrack",
+    "slug": "meditrack",
+    "scheme": "meditrack",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0F766E"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.meditrack.app"
+    },
+    "android": {
+      "package": "com.meditrack.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#0F766E",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      "expo-sqlite",
+      [
+        "expo-notifications",
+        {
+          "color": "#0F766E"
+        }
+      ]
+    ]
+  }
+}
