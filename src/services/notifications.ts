@@ -3,6 +3,7 @@ import { isRunningInExpoGo } from 'expo';
 import { Platform } from 'react-native';
 import { dateKey, parseKey } from '../utils/date';
 import { listMedications } from './medications';
+import { syncTelegramReminders } from './telegram';
 
 const CHANNEL_ID = 'lembretes';
 
@@ -59,66 +60,73 @@ export async function refreshReminders(): Promise<void> {
     const perm = await Notifications.getPermissionsAsync();
     const meds = await listMedications();
     await Notifications.cancelAllScheduledNotificationsAsync();
-    if (!perm.granted) return;
-    await ensureChannel();
+    if (perm.granted) {
+      await ensureChannel();
 
-    const channelId = getChannelId();
-    const today = dateKey();
-    for (const m of meds) {
-      if (m.status !== 'active') continue;
+      const channelId = getChannelId();
+      const today = dateKey();
+      for (const m of meds) {
+        if (m.status !== 'active') continue;
 
-      for (const time of m.times) {
-        const [hour, minute] = time.split(':').map(Number);
-        const content = {
-          title: 'Hora do medicamento',
-          body: `${m.name} — ${m.dosage}. Abra o app para registrar.`,
-          data: { kind: 'intake', medicationId: m.id },
-        };
-        if (m.weekdays.length === 0 || m.weekdays.length === 7) {
-          await Notifications.scheduleNotificationAsync({
-            content,
-            trigger: {
-              type: Notifications.SchedulableTriggerInputTypes.DAILY,
-              hour,
-              minute,
-              ...(channelId ? { channelId } : {}),
-            },
-          });
-        } else {
-          for (const wd of m.weekdays) {
+        for (const time of m.times) {
+          const [hour, minute] = time.split(':').map(Number);
+          const content = {
+            title: 'Hora do medicamento',
+            body: `${m.name} — ${m.dosage}. Abra o app para registrar.`,
+            data: { kind: 'intake', medicationId: m.id },
+          };
+          if (m.weekdays.length === 0 || m.weekdays.length === 7) {
             await Notifications.scheduleNotificationAsync({
               content,
               trigger: {
-                type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
-                weekday: wd + 1, // expo: 1 = domingo
+                type: Notifications.SchedulableTriggerInputTypes.DAILY,
                 hour,
                 minute,
                 ...(channelId ? { channelId } : {}),
               },
             });
+          } else {
+            for (const wd of m.weekdays) {
+              await Notifications.scheduleNotificationAsync({
+                content,
+                trigger: {
+                  type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
+                  weekday: wd + 1, // expo: 1 = domingo
+                  hour,
+                  minute,
+                  ...(channelId ? { channelId } : {}),
+                },
+              });
+            }
           }
         }
-      }
 
-      const alertDate = m.forecast.alertDate;
-      if (alertDate && m.forecast.status === 'ok' && alertDate > today) {
-        const when = parseKey(alertDate);
-        when.setHours(9, 0, 0, 0);
-        await Notifications.scheduleNotificationAsync({
-          content: {
-            title: 'Hora de planejar a reposição',
-            body: `${m.name}: pela programação cadastrada, o estoque deve acabar em cerca de ${m.forecast.daysRemaining} dias.`,
-            data: { kind: 'restock', medicationId: m.id },
-          },
-          trigger: {
-            type: Notifications.SchedulableTriggerInputTypes.DATE,
-            date: when,
-            ...(channelId ? { channelId } : {}),
-          },
-        });
+        const alertDate = m.forecast.alertDate;
+        if (alertDate && m.forecast.status === 'ok' && alertDate > today) {
+          const when = parseKey(alertDate);
+          when.setHours(9, 0, 0, 0);
+          await Notifications.scheduleNotificationAsync({
+            content: {
+              title: 'Hora de planejar a reposição',
+              body: `${m.name}: pela programação cadastrada, o estoque deve acabar em cerca de ${m.forecast.daysRemaining} dias.`,
+              data: { kind: 'restock', medicationId: m.id },
+            },
+            trigger: {
+              type: Notifications.SchedulableTriggerInputTypes.DATE,
+              date: when,
+              ...(channelId ? { channelId } : {}),
+            },
+          });
+        }
       }
     }
   } catch (e) {
     console.warn('Falha ao agendar lembretes', e);
+  }
+
+  try {
+    await syncTelegramReminders();
+  } catch (e) {
+    console.warn('Falha ao sincronizar lembretes do Telegram', e);
   }
 }

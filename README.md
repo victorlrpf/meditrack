@@ -21,6 +21,92 @@ npx tsc --noEmit  # checagem de tipos
 > Para validar notificações em um app instalado, gere um build de desenvolvimento/produção com EAS (`eas build`).
 > Se o Expo avisar sobre versões de pacotes, rode `npx expo install --fix`.
 
+## Lembretes no Telegram (opcional)
+
+As notificações do aparelho continuam locais. Para também receber mensagens no Telegram com o
+aplicativo fechado, o Supabase precisa estar configurado e executar a Edge Function a cada minuto.
+Ao conectar, o app envia para o Supabase o nome, a dose, os horários e os dias ativos; o bot envia
+nome e dose no horário. O token do bot fica somente nos segredos do Supabase.
+
+1. Crie um projeto no Supabase e aplique `supabase/migrations/20261112000000_telegram_reminders.sql`
+   (com o Supabase CLI: `supabase link --project-ref SEU_PROJECT_REF` e `supabase db push`).
+2. Crie um bot com o [@BotFather](https://t.me/BotFather), abra a conversa com ele e envie `/start`.
+   Obtenha seu chat ID privado com um bot de informações de usuário do Telegram.
+3. Cadastre `TELEGRAM_BOT_TOKEN` (o token HTTP API recebido do BotFather) e
+   `TELEGRAM_CRON_SECRET` como **secrets da Edge Function**. No Dashboard: abra o projeto,
+   vá em **Edge Functions > Secrets** e adicione os dois nomes/valores. Gere um valor longo e
+   aleatório para `TELEGRAM_CRON_SECRET` (não reutilize o token do bot). Não coloque o token nas
+   tabelas, no app, em `EXPO_PUBLIC_*` nem neste repositório.
+
+   Como alternativa, usando o Supabase CLI:
+
+   ```sh
+   supabase login
+   supabase link --project-ref SEU_PROJECT_REF
+   supabase secrets set TELEGRAM_BOT_TOKEN=SEU_TOKEN TELEGRAM_CRON_SECRET=UM_SEGREDO_ALEATORIO
+   supabase functions deploy telegram-reminders
+   ```
+
+   O deploy envia `supabase/functions/telegram-reminders/index.ts`. Se usar o Dashboard para
+   cadastrar secrets, ainda é necessário publicar a função (por exemplo, com
+   `supabase functions deploy telegram-reminders --project-ref SEU_PROJECT_REF`).
+
+4. No **SQL Editor** do Supabase, habilite as extensões `pg_cron`, `pg_net` e `supabase_vault`
+   (se ainda não estiverem habilitadas):
+
+   ```sql
+   create extension if not exists pg_cron;
+   create extension if not exists pg_net with schema extensions;
+   create extension if not exists supabase_vault with schema vault;
+   ```
+
+5. Guarde no Vault a URL da função e o mesmo segredo de cron configurado no passo 3. Substitua
+   `SEU_PROJECT_REF` e `SEU_TELEGRAM_CRON_SECRET` pelos valores do seu projeto:
+
+   ```sql
+   select vault.create_secret(
+     'https://SEU_PROJECT_REF.supabase.co/functions/v1/telegram-reminders',
+     'telegram_function_url'
+   );
+   select vault.create_secret('SEU_TELEGRAM_CRON_SECRET', 'telegram_cron_secret');
+   ```
+
+   Se executar de novo e o Vault informar que o nome já existe, atualize esse segredo em
+   **Database > Vault** em vez de criar outro com o mesmo nome.
+
+6. Agende a chamada a cada minuto no SQL Editor:
+
+   ```sql
+   select cron.schedule(
+     'telegram-reminders-every-minute',
+     '* * * * *',
+     $$
+       select net.http_post(
+         url := (select decrypted_secret from vault.decrypted_secrets where name = 'telegram_function_url'),
+         headers := jsonb_build_object(
+           'Content-Type', 'application/json',
+           'x-cron-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'telegram_cron_secret')
+         ),
+         body := '{"action":"run"}'::jsonb
+       );
+     $$
+   );
+   ```
+
+7. Copie `.env.example` para `.env`, preencha URL e chave anon/public do projeto e inicie o Expo.
+   Para builds EAS, configure as mesmas variáveis no ambiente de build. A chave `service_role` e o
+   token do Telegram **nunca** devem ser incluídos no app.
+8. No app, crie/acesse uma conta em **Ajustes > Telegram**, informe o chat ID e toque em
+   **Salvar e enviar teste**. Uma mensagem de teste confirma o vínculo; os horários ativos são
+   sincronizados automaticamente quando os lembretes são atualizados.
+
+O agendador usa o fuso horário do aparelho no momento da sincronização. Se mudar de fuso ou editar
+uma programação enquanto estiver sem internet, abra o app online para sincronizar. **Desconectar
+Telegram** interrompe os envios; sair da conta também remove os horários remotos. **Apagar todos os
+dados** remove a configuração remota e encerra a sessão.
+Esta integração sincroniza lembretes de um aparelho por conta; ela não sincroniza o cadastro completo
+dos medicamentos entre aparelhos.
+
 ## O que está incluído
 
 | Escopo | Onde |
@@ -35,6 +121,7 @@ npx tsc --noEmit  # checagem de tipos
 | Dashboard "Hoje" | `TodayScreen` |
 | Histórico (administrações, estoque, alterações) | `HistoryScreen` |
 | Persistência local SQLite, sem conta e sem internet | `db/database.ts` |
+| Mensagens agendadas via Telegram (opt-in), Supabase Auth e Edge Function | `services/telegram.ts`, `supabase/` |
 
 ## Regras de negócio cobertas
 
@@ -58,8 +145,9 @@ npx tsc --noEmit  # checagem de tipos
 
 ## Fora deste MVP (próximas fases do escopo)
 
-Receitas e consultas (Fase 3), conta + sincronização com FastAPI/PostgreSQL (Fase 4), exportação de histórico, relatórios e anexos (Fase 5).
-Os dados já usam IDs e tabelas que permitem associar a uma conta depois.
+Receitas e consultas (Fase 3), sincronização completa de dados entre dispositivos (Fase 4),
+exportação de histórico, relatórios e anexos (Fase 5). A autenticação Supabase desta integração é
+usada apenas para proteger os lembretes opcionais do Telegram.
 
 ## Estrutura
 
